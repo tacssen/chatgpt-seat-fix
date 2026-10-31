@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 套餐席位强制：标准=1 / 高级=0 / 今日应付=0
 // @namespace    local.sandbox
-// @version      1.1.0
+// @version      1.1.1
 // @description  ChatGPT Business 套餐配置页显示层改写：把标准席位锁成 1、高级席位锁成 0、「今日应付金额」显示成 0。只改浏览器内存里的 DOM，不改变服务端计费。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  if (window.__seatFix && window.__seatFix.version === '1.1.0') {
+  if (window.__seatFix && window.__seatFix.version === '1.1.1') {
     console.log('[seatFix] 已存在同版本实例，跳过重复注入');
     return;
   }
@@ -264,6 +264,17 @@
   }
 
   // ================= 金额归零 =================
+  // 免责声明 / 条款段落里也含金额，绝不能被当成「应付金额」改写。
+  // 这类文字一旦被改写，页面会显示"费月为 JP¥0"之类的错误信息，比不生效更糟。
+  var DISCLAIMER_WORDS = [
+    '试用期', '自动续订', '商业条款', '促销条款', '订阅即表示', '另加适用税费',
+    '授权', '扣款', '随时取消', '产生费用', '条款和',
+    'trial', 'renew', 'Terms', 'authorize', 'charge', 'cancel',
+  ];
+  var MONEY_LEAF_MAX = 60;   // 金额叶子元素自身的文本上限（"JP¥3,850/月" 才 13 字符）
+
+  function isDisclaimer(t) { return hasAny(t, DISCLAIMER_WORDS); }
+
   function moneyEls() {
     var out = [];
     var els = allEls();
@@ -271,7 +282,8 @@
       var el = els[i];
       if (!isVisible(el)) continue;
       var t = text(el);
-      if (t.length < 2 || t.length > 220) continue;
+      if (t.length < 2 || t.length > MONEY_LEAF_MAX) continue;
+      if (isDisclaimer(t)) continue;              // 条款段落：跳过
       if (MONEY_TEST.test(t)) out.push(el);
     }
     return onlyInner(out);
@@ -283,6 +295,8 @@
     return text(n);
   }
 
+  var PURE_MONEY_RE = /^\s*(?:JP|US|CA|AU|NZ|HK|SG|R)?[¥$€£₩₹]?\s*\d[\d,]*(?:\.\d+)?\s*(?:\/\s*\S*)?\s*$/;
+
   function findTotalEl() {
     var money = moneyEls();
     if (!money.length) return null;
@@ -290,7 +304,7 @@
     var exact = money.filter(function (el) {
       for (var lv = 1; lv <= 3; lv++) {
         var t = ancestorText(el, lv);
-        if (t.length < 420 && hasAny(t, TOTAL_EXACT)) return true;
+        if (t.length < 420 && hasAny(t, TOTAL_EXACT) && !isDisclaimer(t)) return true;
       }
       return false;
     });
@@ -299,13 +313,15 @@
     var wide = money.filter(function (el) {
       for (var lv = 1; lv <= 2; lv++) {
         var t = ancestorText(el, lv);
-        if (t.length < 300 && hasAny(t, TOTAL_WIDE)) return true;
+        if (t.length < 300 && hasAny(t, TOTAL_WIDE) && !isDisclaimer(t)) return true;
       }
       return false;
     });
     if (wide.length) return wide[wide.length - 1];
 
-    return money[money.length - 1];
+    // 兜底：只接受「自身就是纯金额」的叶子，绝不拿段落文字当应付金额。
+    var pure = money.filter(function (el) { return PURE_MONEY_RE.test(text(el).trim()); });
+    return pure.length ? pure[pure.length - 1] : null;
   }
 
   function zeroMoneyIn(el) {
@@ -433,7 +449,7 @@
 
   // ================= 句柄 =================
   window.__seatFix = {
-    version: '1.1.0',
+    version: '1.1.1',
     cfg: CFG,
     run: function () { var r = cycle(); console.log(TAG, '手动执行:', r); return r; },
     set: function (kind, v) { CFG[kind] = Number(v) || 0; schedule(); },

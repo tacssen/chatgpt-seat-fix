@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT 席位配置前台改写（沙箱）",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "把 ChatGPT Business 配置页的标准席位锁成 1、高级席位锁成 0、今日应付显示为 0（仅浏览器显示层）。",
   "content_scripts": [
     {
